@@ -1,5 +1,7 @@
 use std::io::{self, Read};
 
+const DEBUG_ENABLED: bool = false;
+
 fn main() -> io::Result<()> {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input)?;
@@ -45,25 +47,6 @@ impl<'a> State<'a> {
         return identifier;
     }
 
-    fn read_symbol(&mut self) -> String {
-        debug(format!("reading next symbol"));
-        let mut symbol = String::new();
-
-        if self.read_current_char() != '.' {
-            self.parse_error("symbol must start with a .");
-        } else {
-            symbol.push(self.read_current_char());
-        }
-
-        while self.read_next_char().is_ascii_alphanumeric() {
-            symbol.push(self.read_current_char());
-        }
-
-        debug(format!("Found symbol: {}", symbol));
-
-        return symbol;
-    }
-
     fn consume_whitespace(&mut self) {
         debug(format!("Consuming white space"));
 
@@ -78,8 +61,7 @@ impl<'a> State<'a> {
     }
 
     fn read_current_char(&self) -> char {
-        //println!("Consuming char: {}", self.text[self.pos] as char);
-        self.text[self.pos] as char
+        self.text.get(self.pos).unwrap_or(&0).clone() as char
     }
 
     fn read_char(&self, pos: usize) -> char {
@@ -103,13 +85,13 @@ impl<'a> State<'a> {
         let mut offset: usize = 0;
         let mut char = self.read_char(self.pos);
 
-        while char.is_ascii_alphanumeric() || char == '.' {
+        while char.is_ascii_alphanumeric() || char == '.' || char == ',' {
             id.push(char);
             offset += 1;
             char = self.read_char(self.pos + offset);
         }
 
-        println!("Got the ID: {}", id);
+        debug(format!("Got the ID: {}", id));
 
         return id;
     }
@@ -131,7 +113,14 @@ impl<'a> State<'a> {
     }
 
     fn read_next_10(&self) -> String {
-        String::from_utf8(self.text[self.pos..self.pos+10].to_vec()).unwrap_or(String::new())
+        let len = if self.pos + 10 >= self.text.len() {
+            self.text.len() - self.pos - 1
+        }
+        else {
+            10
+        };
+
+        String::from_utf8(self.text[self.pos..self.pos+len].to_vec()).unwrap_or(String::new())
     }
 }
 
@@ -177,16 +166,19 @@ fn st(state: &mut State) {
 }
 
 fn ex1(state: &mut State) {
+    state.consume_whitespace();
     let label = state.new_label();
 
     ex2(state);
 
     while state .read_current_char() == '/' {
         state.consume_str("/");
+        state.consume_whitespace();
         print_instruction(format!("BT {}", label));
         ex2(state);
     }
 
+    state.consume_whitespace();
     print_label(label);
 }
 
@@ -215,12 +207,13 @@ fn ex2(state: &mut State) {
             }
         }
     }
-    debug(format!("{}", state.read_next_10()));
+    debug(format!("here {}", state.read_next_10()));
 
     while !end_statement && (
         state.read_current_char().is_ascii_alphabetic() ||
             "\'($.".contains(state.read_current_char())
     ) {
+        debug(format!("looping {}", state.read_next_10()));
         match state.read_current_char() {
             '.' => match &state.read_current_id()[..] {
                 ".," => end_statement = true,
@@ -241,6 +234,8 @@ fn ex2(state: &mut State) {
                 }
             }
         }
+        state.consume_whitespace();
+        debug(format!("next char {}",  state.read_current_char()));
     }
 
     print_label(label);
@@ -248,6 +243,8 @@ fn ex2(state: &mut State) {
 
 fn ex3(state: &mut State) {
     debug(format!("ex3 current car: {}", state.read_next_10()));
+
+    state.consume_whitespace();
 
     match state.read_current_char() {
         '.' => match &state.read_current_id()[..] {
@@ -277,9 +274,12 @@ fn ex3(state: &mut State) {
             state.consume_str("(");
             ex1(state);
             state.consume_str(")");
+            state.consume_whitespace();
         },
         '$' => {
             state.consume_str("$");
+            state.consume_whitespace();
+
             let label = state.new_label();
             print_label(format!("{}", label));
             ex3(state);
@@ -304,7 +304,51 @@ fn ex3(state: &mut State) {
 }
 
 fn output(state: &mut State) {
+    match &state.read_current_id()[..] {
+        ".OUT"=> {
+            state.consume_str(".OUT(");
+            state.consume_whitespace();
+            while state.read_current_char() != ')' {
+                out(state);
+            }
+            state.consume_str(")");
 
+        },
+        ".LABEL"=> {
+            state.consume_str(".LABEL");
+            state.consume_whitespace();
+            print_instruction(format!("LB"));
+            out(state);
+        },
+        _ => state.parse_error("Unknown symbol")
+    }
+
+    print_instruction(format!("OUT"));
+}
+
+fn out(state: &mut State) {
+    match state.read_current_char() {
+        '*' => {
+            state.consume_str("*");
+            match state.read_current_char() {
+                '1' => {
+                    state.consume_str("1");
+                    print_instruction(format!("GN1"));
+                },
+                '2' => {
+                    state.consume_str("2");
+                    print_instruction(format!("GN2"));
+                },
+                _ => print_instruction(format!("CI"))
+            }
+        },
+        '\'' => {
+            print_instruction(format!("CL {}", state.consume_string()));
+            state.consume_whitespace();
+        },
+        _ => state.parse_error("Expected * or \'")
+    }
+    state.consume_whitespace();
 }
 
 fn print_instruction(instruction: String) {
@@ -316,5 +360,7 @@ fn print_label(label: String) {
 }
 
 fn debug(message: String) {
-    println!("{}", message);
+    if DEBUG_ENABLED {
+        println!("{}", message);
+    }
 }
